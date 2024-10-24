@@ -24,9 +24,8 @@ pub use task::{TaskControlBlock, TaskStatus};
 pub use context::TaskContext;
 
 // My code
-use crate::syscall::process::{TaskInfo, sys_task_info};
-use crate::timer::get_time_us;
-use crate::syscall::{SYSCALL_EXIT, SYSCALL_YIELD, SYSCALL_TASK_INFO};
+use crate::syscall::process::TaskInfo;
+use crate::timer::get_time_ms;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -50,8 +49,6 @@ pub struct TaskManagerInner {
     tasks: [TaskControlBlock; MAX_APP_NUM],
     /// id of current `Running` task
     current_task: usize,
-    /// start time of current `Running` task
-    current_task_start_time: usize,
 }
 
 lazy_static! {
@@ -62,6 +59,7 @@ lazy_static! {
             status: TaskStatus::UnInit,
             syscall_times: [0; MAX_SYSCALL_NUM],
             time: 0,
+            start_time: 0,
         };
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
@@ -77,7 +75,6 @@ lazy_static! {
                 UPSafeCell::new(TaskManagerInner {
                     tasks,
                     current_task: 0,
-                    current_task_start_time: 0,
                 })
             },
         }
@@ -91,13 +88,11 @@ impl TaskManager {
     /// But in ch3, we load apps statically, so the first task is a real app.
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
-        inner.current_task_start_time = get_time_us();
-
         let task0 = &mut inner.tasks[0];
-
         task0.task_info.status = TaskStatus::Running;
-
+        task0.task_info.start_time = get_time_ms();
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
+
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -111,13 +106,9 @@ impl TaskManager {
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        let end_time = get_time_us();
-        inner.tasks[current].task_info.time += end_time - inner.current_task_start_time;
-        inner.current_task_start_time = end_time;
-        inner.tasks[current].task_info.syscall_times[SYSCALL_YIELD] += 1;
 
-        let _ = sys_task_info(&mut inner.tasks[current].task_info);
-        inner.tasks[current].task_info.syscall_times[SYSCALL_TASK_INFO] += 1;
+        inner.tasks[current].task_info.time = get_time_ms() - inner.tasks[current].task_info.start_time;
+
         inner.tasks[current].task_info.status = TaskStatus::Ready;
     }
 
@@ -125,13 +116,9 @@ impl TaskManager {
     fn mark_current_exited(&self) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        let end_time = get_time_us();
-        inner.tasks[current].task_info.time += get_time_us() - inner.current_task_start_time;
-        inner.current_task_start_time = end_time;
-        inner.tasks[current].task_info.syscall_times[SYSCALL_EXIT] += 1;
 
-        let _ = sys_task_info(&mut inner.tasks[current].task_info);
-        inner.tasks[current].task_info.syscall_times[SYSCALL_TASK_INFO] += 1;
+        inner.tasks[current].task_info.time = get_time_ms() - inner.tasks[current].task_info.start_time;
+
         inner.tasks[current].task_info.status = TaskStatus::Exited;
     }
 
@@ -153,9 +140,13 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_info.status = TaskStatus::Running;
+            if inner.tasks[next].task_info.start_time == 0 {
+                inner.tasks[next].task_info.start_time = get_time_ms();
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
@@ -165,6 +156,11 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    fn get_current_task_info(&self) -> TaskInfo {
+        let inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].task_info
     }
 }
 
@@ -206,5 +202,9 @@ pub fn update_current_syscall_times(syscall_id: usize) {
     let mut inner = TASK_MANAGER.inner.exclusive_access();
     let current = inner.current_task;
     inner.tasks[current].task_info.syscall_times[syscall_id] += 1;
-    drop(inner);
+}
+
+/// Get current task info
+pub fn get_current_task_info() -> TaskInfo {
+    TASK_MANAGER.get_current_task_info()
 }
