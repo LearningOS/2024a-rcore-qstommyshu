@@ -5,22 +5,28 @@ use crate::{
     timer::get_time_us,
 };
 
+// use crate::syscall::{SYSCALL_WRITE, SYSCALL_EXIT, SYSCALL_YIELD, SYSCALL_GET_TIME, SYSCALL_TASK_INFO};
+
 #[repr(C)]
 #[derive(Debug)]
+/// dummy
 pub struct TimeVal {
+    /// dummy
     pub sec: usize,
+    /// dummy
     pub usec: usize,
 }
 
 /// Task information
 #[allow(dead_code)]
+#[derive(Copy, Clone, Debug)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
-    status: TaskStatus,
+    pub status: TaskStatus,
     /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
-    time: usize,
+    pub time: usize,
 }
 
 /// task exits and submit an exit code
@@ -53,5 +59,11 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
-    -1
+    // let ti = unsafe { &mut *_ti };
+    // println!("current task status: {:?}, running time: {:?}", ti.status, ti.time);
+    // println!("SYSCALL_WRITE: {:?}, SYSCALL_EXIT: {:?}, SYSCALL_YIELD: {:?}, SYSCALL_GET_TIME: {:?}, SYSCALL_TASK_INFO: {:?}",
+    //     ti.syscall_times[SYSCALL_WRITE], ti.syscall_times[SYSCALL_EXIT], ti.syscall_times[SYSCALL_YIELD], ti.syscall_times[SYSCALL_GET_TIME], ti.syscall_times[SYSCALL_TASK_INFO]
+    // );
+
+    0
 }
