@@ -59,15 +59,16 @@ lazy_static! {
             status: TaskStatus::UnInit,
             syscall_times: [0; MAX_SYSCALL_NUM],
             time: 0,
-            start_time: 0,
         };
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_info,
+            start_time: 0,
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_info.status = TaskStatus::Ready;
+            task.start_time = 0;
         }
         TaskManager {
             num_app,
@@ -90,7 +91,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
         task0.task_info.status = TaskStatus::Running;
-        task0.task_info.start_time = get_time_ms();
+        task0.start_time = get_time_ms();
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
 
         drop(inner);
@@ -107,7 +108,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
 
-        inner.tasks[current].task_info.time = get_time_ms() - inner.tasks[current].task_info.start_time;
+        inner.tasks[current].task_info.time = get_time_ms() - inner.tasks[current].start_time;
 
         inner.tasks[current].task_info.status = TaskStatus::Ready;
     }
@@ -117,7 +118,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
 
-        inner.tasks[current].task_info.time = get_time_ms() - inner.tasks[current].task_info.start_time;
+        inner.tasks[current].task_info.time = get_time_ms() - inner.tasks[current].start_time;
 
         inner.tasks[current].task_info.status = TaskStatus::Exited;
     }
@@ -140,8 +141,8 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_info.status = TaskStatus::Running;
-            if inner.tasks[next].task_info.start_time == 0 {
-                inner.tasks[next].task_info.start_time = get_time_ms();
+            if inner.tasks[next].start_time == 0 {
+                inner.tasks[next].start_time = get_time_ms();
             }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
