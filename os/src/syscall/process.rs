@@ -59,10 +59,9 @@ pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
 
     let task_control_block = crate::task::get_current_task_control_block();
-    // unsafe { *_ti = task_control_block; }
 
     let ti = unsafe { &mut *_ti };
-    // *ti = task_control_block;
+
     ti.status = task_control_block.status;
     ti.syscall_times = task_control_block.syscall_times;
     ti.time = task_control_block.running_time;
