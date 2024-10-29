@@ -24,6 +24,9 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 
+// My code
+use crate::timer::get_time_ms;
+
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -79,6 +82,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
+        next_task.task_start_time = Some(get_time_ms());
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -100,6 +104,11 @@ impl TaskManager {
     fn mark_current_exited(&self) {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
+
+        match inner.tasks[cur].task_start_time {
+            Some(start_time) => inner.tasks[cur].task_running_time = Some(get_time_ms() - start_time),
+            None => panic!("Task {} exited without start time", cur),
+        }
         inner.tasks[cur].task_status = TaskStatus::Exited;
     }
 
@@ -124,6 +133,18 @@ impl TaskManager {
     fn get_current_trap_cx(&self) -> &'static mut TrapContext {
         let inner = self.inner.exclusive_access();
         inner.tasks[inner.current_task].get_trap_cx()
+    }
+
+    /// Get the current 'Running' task's control block.
+    fn get_current_task_control_block(&self) -> &TaskControlBlock {
+        let inner = self.inner.exclusive_access();
+        &inner.tasks[inner.current_task]
+    }
+
+    /// Update the current 'Running' task's system call times.
+    fn update_current_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        inner.tasks[inner.current_task].task_syscall_times[syscall_id] += 1;
     }
 
     /// Change the current 'Running' task's program break
@@ -201,4 +222,14 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Update the current 'Running' task's system call times.
+pub fn update_current_syscall_times(syscall_id: usize) {
+    TASK_MANAGER.update_current_syscall_times(syscall_id);
+}
+
+/// Get the current 'Running' task's control block.
+pub fn get_current_task_control_block() -> &'static TaskControlBlock {
+    TASK_MANAGER.get_current_task_control_block()
 }
