@@ -82,7 +82,7 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
-        next_task.task_start_time = Some(get_time_ms());
+        next_task.task_start_time = get_time_ms();
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
         drop(inner);
         let mut _unused = TaskContext::zero_init();
@@ -97,6 +97,9 @@ impl TaskManager {
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
+
+        let start_time = inner.tasks[cur].task_start_time;
+        inner.tasks[cur].task_running_time = get_time_ms() - start_time;
         inner.tasks[cur].task_status = TaskStatus::Ready;
     }
 
@@ -105,10 +108,8 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
 
-        match inner.tasks[cur].task_start_time {
-            Some(start_time) => inner.tasks[cur].task_running_time = Some(get_time_ms() - start_time),
-            None => panic!("Task {} exited without start time", cur),
-        }
+        let start_time = inner.tasks[cur].task_start_time;
+        inner.tasks[cur].task_running_time = get_time_ms() - start_time;
         inner.tasks[cur].task_status = TaskStatus::Exited;
     }
 
@@ -162,6 +163,7 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            inner.tasks[current].task_start_time = get_time_ms();
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;

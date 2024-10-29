@@ -21,10 +21,10 @@ pub struct TaskControlBlock {
     pub task_syscall_counter: [u32; MAX_SYSCALL_NUM],
 
     /// Maintain the total running time of the current process
-    pub task_running_time: Option<usize>,
+    pub task_running_time: usize,
 
     /// The start time of the current process
-    pub task_start_time: Option<usize>,
+    pub task_start_time: usize,
 
     /// Application address space
     pub memory_set: MemorySet,
@@ -71,8 +71,8 @@ impl TaskControlBlock {
             task_status,
             task_cx: TaskContext::goto_trap_return(kernel_stack_top),
             task_syscall_counter: [0; MAX_SYSCALL_NUM],
-            task_running_time: None,
-            task_start_time: None,
+            task_running_time: 0,
+            task_start_time: 0,
             memory_set,
             trap_cx_ppn,
             base_size: user_sp,
