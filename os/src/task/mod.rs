@@ -135,16 +135,17 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
-    /// Get the current 'Running' task's control block.
-    fn get_current_task_control_block(&self) -> &TaskControlBlock {
-        let inner = self.inner.exclusive_access();
-        &inner.tasks[inner.current_task]
-    }
+    // /// Get the current 'Running' task's control block.
+    // fn get_current_task_control_block(&self) -> &TaskControlBlock {
+    //     let inner = self.inner.exclusive_access();
+    //     &inner.tasks[inner.current_task]
+    // }
 
     /// Update the current 'Running' task's system call times.
-    fn update_current_syscall_times(&self, syscall_id: usize) {
+    fn update_current_syscall_counter(&self, syscall_id: usize) {
         let mut inner = self.inner.exclusive_access();
-        inner.tasks[inner.current_task].task_syscall_times[syscall_id] += 1;
+        let cur = inner.current_task;
+        inner.tasks[cur].task_syscall_counter[syscall_id] += 1;
     }
 
     /// Change the current 'Running' task's program break
@@ -225,11 +226,11 @@ pub fn change_program_brk(size: i32) -> Option<usize> {
 }
 
 /// Update the current 'Running' task's system call times.
-pub fn update_current_syscall_times(syscall_id: usize) {
-    TASK_MANAGER.update_current_syscall_times(syscall_id);
+pub fn update_current_syscall_counter(syscall_id: usize) {
+    TASK_MANAGER.update_current_syscall_counter(syscall_id);
 }
 
-/// Get the current 'Running' task's control block.
-pub fn get_current_task_control_block() -> &'static TaskControlBlock {
-    TASK_MANAGER.get_current_task_control_block()
-}
+// /// Get the current 'Running' task's control block.
+// pub fn get_current_task_control_block() -> &'static TaskControlBlock {
+//     TASK_MANAGER.get_current_task_control_block()
+// }

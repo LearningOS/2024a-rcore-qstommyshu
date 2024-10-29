@@ -18,7 +18,7 @@ pub struct TaskControlBlock {
     pub task_status: TaskStatus,
 
     /// Maintain the system call times of the current process
-    pub task_syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub task_syscall_counter: [u32; MAX_SYSCALL_NUM],
 
     /// Maintain the total running time of the current process
     pub task_running_time: Option<usize>,
@@ -43,11 +43,11 @@ pub struct TaskControlBlock {
 }
 
 impl TaskControlBlock {
-    /// get the trap context
+    /// get the trap context (TODO: what is trap context?)
     pub fn get_trap_cx(&self) -> &'static mut TrapContext {
         self.trap_cx_ppn.get_mut()
     }
-    /// get the user token
+    /// get the user token (application page table starting address, like id?)
     pub fn get_user_token(&self) -> usize {
         self.memory_set.token()
     }
@@ -70,7 +70,7 @@ impl TaskControlBlock {
         let task_control_block = Self {
             task_status,
             task_cx: TaskContext::goto_trap_return(kernel_stack_top),
-            task_syscall_times: [0; MAX_SYSCALL_NUM],
+            task_syscall_counter: [0; MAX_SYSCALL_NUM],
             task_running_time: None,
             task_start_time: None,
             memory_set,
