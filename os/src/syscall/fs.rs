@@ -10,6 +10,7 @@ pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     trace!("kernel: sys_write");
     match fd {
         FD_STDOUT => {
+            // read stored user buffer and print it with supervisor access
             let buffers = translated_byte_buffer(current_user_token(), buf, len);
             for buffer in buffers {
                 print!("{}", core::str::from_utf8(buffer).unwrap());

@@ -14,18 +14,21 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::loader::{get_app_data, get_num_app};
+use crate::config::PAGE_SIZE;
+use crate::loader::{ get_app_data, get_num_app };
+use crate::mm::{ MapPermission, VirtAddr };
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{ TaskControlBlock, TaskStatus };
 
 pub use context::TaskContext;
 
 // My code
 use crate::timer::get_time_ms;
+use crate::syscall::TaskInfo;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -97,9 +100,6 @@ impl TaskManager {
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
-
-        let start_time = inner.tasks[cur].task_start_time;
-        inner.tasks[cur].task_running_time = get_time_ms() - start_time;
         inner.tasks[cur].task_status = TaskStatus::Ready;
     }
 
@@ -107,9 +107,6 @@ impl TaskManager {
     fn mark_current_exited(&self) {
         let mut inner = self.inner.exclusive_access();
         let cur = inner.current_task;
-
-        let start_time = inner.tasks[cur].task_start_time;
-        inner.tasks[cur].task_running_time = get_time_ms() - start_time;
         inner.tasks[cur].task_status = TaskStatus::Exited;
     }
 
@@ -136,11 +133,23 @@ impl TaskManager {
         inner.tasks[inner.current_task].get_trap_cx()
     }
 
-    // /// Get the current 'Running' task's control block.
-    // fn get_current_task_control_block(&self) -> &TaskControlBlock {
-    //     let inner = self.inner.exclusive_access();
-    //     &inner.tasks[inner.current_task]
-    // }
+    /// Get the current 'Running' task's task info.
+    fn get_current_task_info(&self) -> TaskInfo {
+        let inner = self.inner.exclusive_access();
+        let status = inner.tasks[inner.current_task].task_status;
+        let syscall_times = inner.tasks[inner.current_task].task_syscall_counter;
+        let time = {
+            let start_time = inner.tasks[inner.current_task].task_start_time;
+            let now = get_time_ms();
+            now - start_time
+        };
+
+        TaskInfo {
+            status,
+            syscall_times,
+            time,
+        }
+    }
 
     /// Update the current 'Running' task's system call times.
     fn update_current_syscall_counter(&self, syscall_id: usize) {
@@ -163,7 +172,9 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
-            inner.tasks[current].task_start_time = get_time_ms();
+            if inner.tasks[next].task_start_time == 0 {
+                inner.tasks[next].task_start_time = get_time_ms();
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -176,6 +187,57 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    fn allocate_memory(&self, start: usize, len: usize, port: usize) -> isize {
+        // check all other port bits are 0, and pagesize alligned
+        if (port >> 3) != 0 || start % PAGE_SIZE != 0 {
+            return -1;
+        }
+
+        // 1. Get start and end vaddress
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+
+        let mut inner = self.inner.exclusive_access();
+
+        let current_task = {
+            let id = inner.current_task;
+            &mut inner.tasks[id]
+        };
+
+        // 2. Check if [start_va, end_va] can be allocated to current task memory set
+        if current_task.memory_set.can_allocate(start_va, end_va) {
+            // 3. Insert vaddresses to memory set with port
+            let permission =
+                MapPermission::from_bits((port as u8) << 1).unwrap() | MapPermission::U;
+            current_task.memory_set.insert_framed_area(start_va, end_va, permission);
+            0
+        } else {
+            -1
+        }
+    }
+
+    fn free_memory(&self, start: usize, len: usize) -> isize {
+        if start % PAGE_SIZE != 0 {
+            return -1;
+        }
+        let start_va = VirtAddr::from(start);
+        if !start_va.aligned() {
+            return -1;
+        }
+        let end_va = VirtAddr::from(start + len);
+        if !end_va.aligned() {
+            return -1;
+        }
+        let mut inner = self.inner.exclusive_access();
+        let current_task = {
+            let id = inner.current_task;
+            &mut inner.tasks[id]
+        };
+
+        current_task.memory_set.free_framed_area(start_va, end_va);
+        0
     }
 }
 
@@ -222,6 +284,11 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
     TASK_MANAGER.get_current_trap_cx()
 }
 
+/// Get the current 'Running' task's task info as tuple.
+pub fn current_task_info() -> TaskInfo {
+    TASK_MANAGER.get_current_task_info()
+}
+
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
@@ -232,7 +299,12 @@ pub fn update_current_syscall_counter(syscall_id: usize) {
     TASK_MANAGER.update_current_syscall_counter(syscall_id);
 }
 
-// /// Get the current 'Running' task's control block.
-// pub fn get_current_task_control_block() -> &'static TaskControlBlock {
-//     TASK_MANAGER.get_current_task_control_block()
-// }
+/// Allocatae memory to current task
+pub fn current_task_mmap(start: usize, len: usize, port: usize) -> isize {
+    TASK_MANAGER.allocate_memory(start, len, port)
+}
+
+/// Free memory from current task
+pub fn current_task_munmap(start: usize, len: usize) -> isize {
+    TASK_MANAGER.free_memory(start, len)
+}

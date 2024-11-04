@@ -2,9 +2,14 @@
 use super::TaskContext;
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{
-    kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
+    kernel_stack_position,
+    MapPermission,
+    MemorySet,
+    PhysPageNum,
+    VirtAddr,
+    KERNEL_SPACE,
 };
-use crate::trap::{trap_handler, TrapContext};
+use crate::trap::{ trap_handler, TrapContext };
 
 // My code
 use crate::config::MAX_SYSCALL_NUM;
@@ -19,9 +24,6 @@ pub struct TaskControlBlock {
 
     /// Maintain the system call times of the current process
     pub task_syscall_counter: [u32; MAX_SYSCALL_NUM],
-
-    /// Maintain the total running time of the current process
-    pub task_running_time: usize,
 
     /// The start time of the current process
     pub task_start_time: usize,
@@ -65,19 +67,19 @@ impl TaskControlBlock {
         KERNEL_SPACE.exclusive_access().insert_framed_area(
             kernel_stack_bottom.into(),
             kernel_stack_top.into(),
-            MapPermission::R | MapPermission::W,
+            MapPermission::R | MapPermission::W
         );
         let task_control_block = Self {
             task_status,
             task_cx: TaskContext::goto_trap_return(kernel_stack_top),
-            task_syscall_counter: [0; MAX_SYSCALL_NUM],
-            task_running_time: 0,
-            task_start_time: 0,
             memory_set,
             trap_cx_ppn,
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+
+            task_syscall_counter: [0; MAX_SYSCALL_NUM],
+            task_start_time: 0,
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -86,23 +88,21 @@ impl TaskControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             kernel_stack_top,
-            trap_handler as usize,
+            trap_handler as usize
         );
         task_control_block
     }
     /// change the location of the program break. return None if failed.
     pub fn change_program_brk(&mut self, size: i32) -> Option<usize> {
         let old_break = self.program_brk;
-        let new_brk = self.program_brk as isize + size as isize;
-        if new_brk < self.heap_bottom as isize {
+        let new_brk = (self.program_brk as isize) + (size as isize);
+        if new_brk < (self.heap_bottom as isize) {
             return None;
         }
         let result = if size < 0 {
-            self.memory_set
-                .shrink_to(VirtAddr(self.heap_bottom), VirtAddr(new_brk as usize))
+            self.memory_set.shrink_to(VirtAddr(self.heap_bottom), VirtAddr(new_brk as usize))
         } else {
-            self.memory_set
-                .append_to(VirtAddr(self.heap_bottom), VirtAddr(new_brk as usize))
+            self.memory_set.append_to(VirtAddr(self.heap_bottom), VirtAddr(new_brk as usize))
         };
         if result {
             self.program_brk = new_brk as usize;
