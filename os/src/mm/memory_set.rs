@@ -53,23 +53,14 @@ impl MemorySet {
             areas: Vec::new(),
         }
     }
-    /// Check if va range [start_va, end_va] can be allocated to current MemorySet by
-    /// checing if [start_va, end_va] has overlap with any areas
+    /// Check if va range [start_va, end_va) can be allocated to current MemorySet by
+    /// checing if [start_va, end_va) has overlap with any areas
     pub fn can_allocate(&self, start_va: VirtAddr, end_va: VirtAddr) -> bool {
         self.areas
             .iter()
             .all(|area| {
-                start_va.floor() > area.vpn_range.get_end() ||
-                    end_va.ceil() < area.vpn_range.get_start()
-            })
-    }
-    /// Check if memory range include allocated memory
-    pub fn include_allocated(&self, start_address: VirtAddr, end_address: VirtAddr) -> bool {
-        self.areas
-            .iter()
-            .any(|area| {
-                area.vpn_range.get_end() > start_address.floor() &&
-                    area.vpn_range.get_start() < end_address.ceil()
+                start_va.floor() >= area.vpn_range.get_end() ||
+                    end_va.ceil() <= area.vpn_range.get_start()
             })
     }
     /// Get the page table token
