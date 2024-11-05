@@ -1,7 +1,7 @@
 //! Implementation of physical and virtual address and page number.
 use super::PageTableEntry;
-use crate::config::{PAGE_SIZE, PAGE_SIZE_BITS};
-use core::fmt::{self, Debug, Formatter};
+use crate::config::{ PAGE_SIZE, PAGE_SIZE_BITS };
+use core::fmt::{ self, Debug, Formatter };
 /// physical address
 const PA_WIDTH_SV39: usize = 56;
 const VA_WIDTH_SV39: usize = 39;
@@ -80,11 +80,7 @@ impl From<PhysPageNum> for usize {
 }
 impl From<VirtAddr> for usize {
     fn from(v: VirtAddr) -> Self {
-        if v.0 >= (1 << (VA_WIDTH_SV39 - 1)) {
-            v.0 | (!((1 << VA_WIDTH_SV39) - 1))
-        } else {
-            v.0
-        }
+        if v.0 >= 1 << (VA_WIDTH_SV39 - 1) { v.0 | !((1 << VA_WIDTH_SV39) - 1) } else { v.0 }
     }
 }
 impl From<VirtPageNum> for usize {
@@ -206,17 +202,11 @@ impl StepByOne for VirtPageNum {
 
 #[derive(Copy, Clone)]
 /// a simple range structure for type T
-pub struct SimpleRange<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
+pub struct SimpleRange<T> where T: StepByOne + Copy + PartialEq + PartialOrd + Debug {
     l: T,
     r: T,
 }
-impl<T> SimpleRange<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
+impl<T> SimpleRange<T> where T: StepByOne + Copy + PartialEq + PartialOrd + Debug {
     pub fn new(start: T, end: T) -> Self {
         assert!(start <= end, "start {:?} > end {:?}!", start, end);
         Self { l: start, r: end }
@@ -228,10 +218,7 @@ where
         self.r
     }
 }
-impl<T> IntoIterator for SimpleRange<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
+impl<T> IntoIterator for SimpleRange<T> where T: StepByOne + Copy + PartialEq + PartialOrd + Debug {
     type Item = T;
     type IntoIter = SimpleRangeIterator<T>;
     fn into_iter(self) -> Self::IntoIter {
@@ -239,24 +226,18 @@ where
     }
 }
 /// iterator for the simple range structure
-pub struct SimpleRangeIterator<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
+pub struct SimpleRangeIterator<T> where T: StepByOne + Copy + PartialEq + PartialOrd + Debug {
     current: T,
     end: T,
 }
-impl<T> SimpleRangeIterator<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
+impl<T> SimpleRangeIterator<T> where T: StepByOne + Copy + PartialEq + PartialOrd + Debug {
     pub fn new(l: T, r: T) -> Self {
         Self { current: l, end: r }
     }
 }
-impl<T> Iterator for SimpleRangeIterator<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
+impl<T> Iterator
+    for SimpleRangeIterator<T>
+    where T: StepByOne + Copy + PartialEq + PartialOrd + Debug
 {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {

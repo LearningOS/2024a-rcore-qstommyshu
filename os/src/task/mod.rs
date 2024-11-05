@@ -191,7 +191,7 @@ impl TaskManager {
 
     fn allocate_memory(&self, start: usize, len: usize, port: usize) -> isize {
         // check all other port bits are 0, and pagesize alligned
-        if (port >> 3) != 0 || start % PAGE_SIZE != 0 {
+        if (port & !0x7) != 0 || (port & 0x7) == 0 || start % PAGE_SIZE != 0 {
             return -1;
         }
 
