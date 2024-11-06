@@ -1,7 +1,7 @@
 //! File and filesystem-related syscalls
-use crate::fs::{open_file, OpenFlags, Stat};
-use crate::mm::{translated_byte_buffer, translated_str, UserBuffer};
-use crate::task::{current_task, current_user_token};
+use crate::fs::{ link_at, unlink_at, open_file, OpenFlags, Stat };
+use crate::mm::{ translated_byte_buffer, translated_refmut, translated_str, UserBuffer };
+use crate::task::{ current_task, current_user_token };
 
 pub fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     trace!("kernel:pid[{}] sys_write", current_task().unwrap().pid.0);
@@ -75,29 +75,29 @@ pub fn sys_close(fd: usize) -> isize {
     0
 }
 
-/// YOUR JOB: Implement fstat.
-pub fn sys_fstat(_fd: usize, _st: *mut Stat) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_fstat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_fstat(fd: usize, st: *mut Stat) -> isize {
+    let stat = {
+        let task = current_task().unwrap();
+        let inner = task.inner_exclusive_access();
+        let Some(Some(file)) = inner.fd_table.get(fd) else {
+            return -1;
+        };
+        file.fstat()
+    };
+    *translated_refmut(current_user_token(), st) = stat;
+    0
 }
 
 /// YOUR JOB: Implement linkat.
-pub fn sys_linkat(_old_name: *const u8, _new_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_linkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_linkat(old_name: *const u8, new_name: *const u8) -> isize {
+    let token = current_user_token();
+    let (old_name, new_name) = (translated_str(token, old_name), translated_str(token, new_name));
+    link_at(&old_name, &new_name)
 }
 
 /// YOUR JOB: Implement unlinkat.
-pub fn sys_unlinkat(_name: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_unlinkat NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+pub fn sys_unlinkat(name: *const u8) -> isize {
+    let token = current_user_token();
+    let name = translated_str(token, name);
+    unlink_at(&name)
 }

@@ -4,14 +4,14 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
+use super::{ File, Stat };
 use crate::drivers::BLOCK_DEVICE;
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bitflags::*;
-use easy_fs::{EasyFileSystem, Inode};
+use easy_fs::{ EasyFileSystem, Inode };
 use lazy_static::*;
 
 /// inode in memory
@@ -34,7 +34,9 @@ impl OSInode {
         Self {
             readable,
             writable,
-            inner: unsafe { UPSafeCell::new(OSInodeInner { offset: 0, inode }) },
+            inner: unsafe {
+                UPSafeCell::new(OSInodeInner { offset: 0, inode })
+            },
         }
     }
     /// read all data from the inode
@@ -110,9 +112,7 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
             Some(Arc::new(OSInode::new(readable, writable, inode)))
         } else {
             // create file
-            ROOT_INODE
-                .create(name)
-                .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
+            ROOT_INODE.create(name).map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
         }
     } else {
         ROOT_INODE.find(name).map(|inode| {
@@ -155,4 +155,48 @@ impl File for OSInode {
         }
         total_write_size
     }
+    fn fstat(&self) -> Stat {
+        use crate::fs::StatMode;
+        let inner = self.inner.exclusive_access();
+        let inode = &inner.inode;
+        let inode_id = inode.inode_id();
+        let mode = if inode.is_dir() {
+            StatMode::DIR
+        } else if inode.is_file() {
+            StatMode::FILE
+        } else {
+            StatMode::NULL
+        };
+        let nlink = inode.get_nlink();
+
+        Stat {
+            dev: 0,
+            ino: inode_id.into(),
+            mode,
+            nlink,
+            pad: Default::default(),
+        }
+    }
+}
+
+/// Link a file
+pub fn link_at(old_name: &str, new_name: &str) -> isize {
+    let Some(_inode) = ROOT_INODE.link_at(old_name, new_name) else {
+        return -1;
+    };
+    0
+}
+
+/// Unlink a file
+pub fn unlink_at(name: &str) -> isize {
+    let Some(_file) = ROOT_INODE.unlink(name) else {
+        return -1;
+    };
+
+    // TODO: free file if there is no link
+    // if file.get_nlink() == 0 {
+    //     // free file
+    // }
+
+    0
 }

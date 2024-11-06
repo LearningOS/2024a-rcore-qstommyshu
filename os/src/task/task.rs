@@ -1,12 +1,12 @@
 //! Types related to task management & Functions for completely changing TCB
-use super::TaskContext;
-use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
-use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use super::{ current_task, TaskContext };
+use super::{ kstack_alloc, pid_alloc, KernelStack, PidHandle };
+use crate::config::{ TRAP_CONTEXT_BASE, MAX_SYSCALL_NUM };
+use crate::fs::{ File, Stdin, Stdout };
+use crate::mm::{ MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE };
 use crate::sync::UPSafeCell;
-use crate::trap::{trap_handler, TrapContext};
-use alloc::sync::{Arc, Weak};
+use crate::trap::{ trap_handler, TrapContext };
+use alloc::sync::{ Arc, Weak };
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
@@ -52,6 +52,12 @@ pub struct TaskControlBlockInner {
     /// Maintain the execution status of the current process
     pub task_status: TaskStatus,
 
+    /// Maintain the system call times of the current process
+    pub task_syscall_counter: [u32; MAX_SYSCALL_NUM],
+
+    /// The total running time of the current process
+    pub task_start_time: usize,
+
     /// Application address space
     pub memory_set: MemorySet,
 
@@ -64,6 +70,8 @@ pub struct TaskControlBlockInner {
 
     /// It is set when active exit or execution error occurs
     pub exit_code: i32,
+
+    /// A vector containing fd opend by current task
     pub fd_table: Vec<Option<Arc<dyn File + Send + Sync>>>,
 
     /// Heap bottom
@@ -71,6 +79,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// Program Stride
+    pub stride: usize,
+
+    /// Program Priority
+    pub priority: usize,
 }
 
 impl TaskControlBlockInner {
@@ -121,6 +135,8 @@ impl TaskControlBlock {
                     base_size: user_sp,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    task_syscall_counter: [0; MAX_SYSCALL_NUM],
+                    task_start_time: 0,
                     memory_set,
                     parent: None,
                     children: Vec::new(),
@@ -131,10 +147,12 @@ impl TaskControlBlock {
                         // 1 -> stdout
                         Some(Arc::new(Stdout)),
                         // 2 -> stderr
-                        Some(Arc::new(Stdout)),
+                        Some(Arc::new(Stdout))
                     ],
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    stride: 0,
+                    priority: 16,
                 })
             },
         };
@@ -145,7 +163,7 @@ impl TaskControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             kernel_stack_top,
-            trap_handler as usize,
+            trap_handler as usize
         );
         task_control_block
     }
@@ -171,7 +189,7 @@ impl TaskControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             self.kernel_stack.get_top(),
-            trap_handler as usize,
+            trap_handler as usize
         );
         *inner.get_trap_cx() = trap_cx;
         // **** release current PCB
@@ -209,6 +227,8 @@ impl TaskControlBlock {
                     base_size: parent_inner.base_size,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    task_syscall_counter: [0; MAX_SYSCALL_NUM],
+                    task_start_time: 0,
                     memory_set,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
@@ -216,6 +236,8 @@ impl TaskControlBlock {
                     fd_table: new_fd_table,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    stride: 0,
+                    priority: 16,
                 })
             },
         });
@@ -241,18 +263,14 @@ impl TaskControlBlock {
         let mut inner = self.inner_exclusive_access();
         let heap_bottom = inner.heap_bottom;
         let old_break = inner.program_brk;
-        let new_brk = inner.program_brk as isize + size as isize;
-        if new_brk < heap_bottom as isize {
+        let new_brk = (inner.program_brk as isize) + (size as isize);
+        if new_brk < (heap_bottom as isize) {
             return None;
         }
         let result = if size < 0 {
-            inner
-                .memory_set
-                .shrink_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
+            inner.memory_set.shrink_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
         } else {
-            inner
-                .memory_set
-                .append_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
+            inner.memory_set.append_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
         };
         if result {
             inner.program_brk = new_brk as usize;
@@ -260,6 +278,29 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+
+    /// Spawn a child process from current task
+    pub fn spawn(&self, elf_data: &[u8]) -> Arc<TaskControlBlock> {
+        let new_task = Arc::new(TaskControlBlock::new(&elf_data));
+        let current_task = current_task().unwrap();
+
+        current_task.inner_exclusive_access().children.push(Arc::clone(&new_task));
+        new_task.inner_exclusive_access().parent = Some(Arc::downgrade(&current_task));
+
+        new_task
+    }
+
+    /// Set priority of the task
+    pub fn set_priority(&mut self, priority: isize) -> isize {
+        if priority < 2 {
+            return -1;
+        }
+
+        let task = current_task().unwrap();
+        let mut task_inner = task.inner_exclusive_access();
+        task_inner.priority = priority as usize;
+        task_inner.priority as isize
     }
 }
 
