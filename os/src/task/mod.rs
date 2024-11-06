@@ -21,18 +21,23 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::loader::get_app_data_by_name;
+use crate::{ loader::get_app_data_by_name, timer::get_time_ms };
 use alloc::sync::Arc;
 use lazy_static::*;
-pub use manager::{fetch_task, TaskManager};
+pub use manager::{ fetch_task, TaskManager };
 use switch::__switch;
-pub use task::{TaskControlBlock, TaskStatus};
+pub use task::{ TaskControlBlock, TaskStatus };
 
 pub use context::TaskContext;
-pub use id::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
+pub use id::{ kstack_alloc, pid_alloc, KernelStack, PidHandle };
 pub use manager::add_task;
 pub use processor::{
-    current_task, current_trap_cx, current_user_token, run_tasks, schedule, take_current_task,
+    current_task,
+    current_trap_cx,
+    current_user_token,
+    run_tasks,
+    schedule,
+    take_current_task,
     Processor,
 };
 /// Suspend the current 'Running' task and run the next task in task list.
@@ -64,10 +69,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
 
     let pid = task.getpid();
     if pid == IDLE_PID {
-        println!(
-            "[kernel] Idle process exit with exit_code {} ...",
-            exit_code
-        );
+        println!("[kernel] Idle process exit with exit_code {} ...", exit_code);
         panic!("All applications completed!");
     }
 
@@ -101,14 +103,49 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     schedule(&mut _unused as *mut _);
 }
 
+/// Update process syscall counter
+pub fn update_current_syscall_counter(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.task_syscall_counter[syscall_id] += 1;
+}
+
+use crate::syscall::TaskInfo;
+/// Fetch process task info
+pub fn fetch_task_info() -> TaskInfo {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    TaskInfo {
+        status: inner.task_status,
+        syscall_times: inner.task_syscall_counter,
+        time: get_time_ms() - inner.task_start_time,
+    }
+}
+
+/// allocate memory to current process
+pub fn allocate_current_process_memory(start: usize, len: usize, port: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let ms = &mut inner.memory_set;
+    ms.mmap(start, len, port)
+}
+
+/// free memory from current process
+pub fn free_current_process_memory(start: usize, len: usize) -> isize {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    let ms = &mut inner.memory_set;
+    ms.munmap(start, len)
+}
+
 lazy_static! {
     /// Creation of initial process
     ///
     /// the name "initproc" may be changed to any other app name like "usertests",
     /// but we have user_shell, so we don't need to change it.
-    pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new(TaskControlBlock::new(
-        get_app_data_by_name("ch5b_initproc").unwrap()
-    ));
+    pub static ref INITPROC: Arc<TaskControlBlock> = Arc::new(
+        TaskControlBlock::new(get_app_data_by_name("ch5b_initproc").unwrap())
+    );
 }
 
 ///Add init process to the manager

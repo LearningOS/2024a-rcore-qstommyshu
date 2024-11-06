@@ -1,11 +1,11 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
-use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
-use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
+use super::{ kstack_alloc, pid_alloc, KernelStack, PidHandle };
+use crate::config::{ TRAP_CONTEXT_BASE, MAX_SYSCALL_NUM };
+use crate::mm::{ MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE };
 use crate::sync::UPSafeCell;
-use crate::trap::{trap_handler, TrapContext};
-use alloc::sync::{Arc, Weak};
+use crate::trap::{ trap_handler, TrapContext };
+use alloc::sync::{ Arc, Weak };
 use alloc::vec::Vec;
 use core::cell::RefMut;
 
@@ -49,6 +49,12 @@ pub struct TaskControlBlockInner {
 
     /// Maintain the execution status of the current process
     pub task_status: TaskStatus,
+
+    /// Maintain the system call times of the current process
+    pub task_syscall_counter: [u32; MAX_SYSCALL_NUM],
+
+    /// The total running time of the current process
+    pub task_start_time: usize,
 
     /// Application address space
     pub memory_set: MemorySet,
@@ -112,6 +118,8 @@ impl TaskControlBlock {
                     base_size: user_sp,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    task_syscall_counter: [0; MAX_SYSCALL_NUM],
+                    task_start_time: 0,
                     memory_set,
                     parent: None,
                     children: Vec::new(),
@@ -128,7 +136,7 @@ impl TaskControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             kernel_stack_top,
-            trap_handler as usize,
+            trap_handler as usize
         );
         task_control_block
     }
@@ -157,7 +165,7 @@ impl TaskControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             self.kernel_stack.get_top(),
-            trap_handler as usize,
+            trap_handler as usize
         );
         // **** release inner automatically
     }
@@ -185,6 +193,8 @@ impl TaskControlBlock {
                     base_size: parent_inner.base_size,
                     task_cx: TaskContext::goto_trap_return(kernel_stack_top),
                     task_status: TaskStatus::Ready,
+                    task_syscall_counter: [0; MAX_SYSCALL_NUM],
+                    task_start_time: 0,
                     memory_set,
                     parent: Some(Arc::downgrade(self)),
                     children: Vec::new(),
@@ -216,18 +226,14 @@ impl TaskControlBlock {
         let mut inner = self.inner_exclusive_access();
         let heap_bottom = inner.heap_bottom;
         let old_break = inner.program_brk;
-        let new_brk = inner.program_brk as isize + size as isize;
-        if new_brk < heap_bottom as isize {
+        let new_brk = (inner.program_brk as isize) + (size as isize);
+        if new_brk < (heap_bottom as isize) {
             return None;
         }
         let result = if size < 0 {
-            inner
-                .memory_set
-                .shrink_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
+            inner.memory_set.shrink_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
         } else {
-            inner
-                .memory_set
-                .append_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
+            inner.memory_set.append_to(VirtAddr(heap_bottom), VirtAddr(new_brk as usize))
         };
         if result {
             inner.program_brk = new_brk as usize;
