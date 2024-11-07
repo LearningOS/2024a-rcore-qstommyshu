@@ -23,14 +23,23 @@ impl TaskManager {
     }
     /// Take a process out of the ready queue
     pub fn fetch(&mut self) -> Option<Arc<TaskControlBlock>> {
-        self.ready_queue.pop_front()
+        // self.ready_queue.pop_front()
+
+        let (min_idx, _) = self.ready_queue
+            .iter()
+            .enumerate()
+            .min_by_key(|(_idx, task)| task.inner_exclusive_access().stride)
+            .unwrap();
+
+        self.ready_queue.remove(min_idx)
     }
 }
 
 lazy_static! {
     /// TASK_MANAGER instance through lazy_static!
-    pub static ref TASK_MANAGER: UPSafeCell<TaskManager> =
-        unsafe { UPSafeCell::new(TaskManager::new()) };
+    pub static ref TASK_MANAGER: UPSafeCell<TaskManager> = unsafe {
+        UPSafeCell::new(TaskManager::new())
+    };
 }
 
 /// Add process to ready queue
