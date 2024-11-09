@@ -1,13 +1,20 @@
 use crate::{
     config::MAX_SYSCALL_NUM,
-    fs::{open_file, OpenFlags},
-    mm::{translated_ref, translated_refmut, translated_str},
+    fs::{ open_file, OpenFlags },
+    mm::{ translated_ref, translated_refmut, translated_str },
     task::{
-        current_process, current_task, current_user_token, exit_current_and_run_next, pid2process,
-        suspend_current_and_run_next, SignalFlags, TaskStatus,
+        current_process,
+        current_task,
+        current_user_token,
+        exit_current_and_run_next,
+        pid2process,
+        suspend_current_and_run_next,
+        SignalFlags,
+        TaskStatus,
     },
+    timer::get_time_us,
 };
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{ string::String, sync::Arc, vec::Vec };
 
 #[repr(C)]
 #[derive(Debug)]
@@ -30,10 +37,7 @@ pub struct TaskInfo {
 ///
 /// exit the current task and run the next task in task list
 pub fn sys_exit(exit_code: i32) -> ! {
-    trace!(
-        "kernel:pid[{}] sys_exit",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
+    trace!("kernel:pid[{}] sys_exit", current_task().unwrap().process.upgrade().unwrap().getpid());
     exit_current_and_run_next(exit_code);
     panic!("Unreachable in sys_exit!");
 }
@@ -53,10 +57,7 @@ pub fn sys_getpid() -> isize {
 }
 /// fork child process syscall
 pub fn sys_fork() -> isize {
-    trace!(
-        "kernel:pid[{}] sys_fork",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
+    trace!("kernel:pid[{}] sys_fork", current_task().unwrap().process.upgrade().unwrap().getpid());
     let current_process = current_process();
     let new_process = current_process.fork();
     let new_pid = new_process.getpid();
@@ -71,10 +72,7 @@ pub fn sys_fork() -> isize {
 }
 /// exec syscall
 pub fn sys_exec(path: *const u8, mut args: *const usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_exec",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
+    trace!("kernel:pid[{}] sys_exec", current_task().unwrap().process.upgrade().unwrap().getpid());
     let token = current_user_token();
     let path = translated_str(token, path);
     let mut args_vec: Vec<String> = Vec::new();
@@ -110,19 +108,18 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     // find a child process
 
     let mut inner = process.inner_exclusive_access();
-    if !inner
-        .children
-        .iter()
-        .any(|p| pid == -1 || pid as usize == p.getpid())
-    {
+    if !inner.children.iter().any(|p| (pid == -1 || (pid as usize) == p.getpid())) {
         return -1;
         // ---- release current PCB
     }
-    let pair = inner.children.iter().enumerate().find(|(_, p)| {
-        // ++++ temporarily access child PCB exclusively
-        p.inner_exclusive_access().is_zombie && (pid == -1 || pid as usize == p.getpid())
-        // ++++ release child PCB
-    });
+    let pair = inner.children
+        .iter()
+        .enumerate()
+        .find(|(_, p)| {
+            // ++++ temporarily access child PCB exclusively
+            p.inner_exclusive_access().is_zombie && (pid == -1 || (pid as usize) == p.getpid())
+            // ++++ release child PCB
+        });
     if let Some((idx, _)) = pair {
         let child = inner.children.remove(idx);
         // confirm that child will be deallocated after being removed from children list
@@ -141,10 +138,7 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 
 /// kill syscall
 pub fn sys_kill(pid: usize, signal: u32) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_kill",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
+    trace!("kernel:pid[{}] sys_kill", current_task().unwrap().process.upgrade().unwrap().getpid());
     if let Some(process) = pid2process(pid) {
         if let Some(flag) = SignalFlags::from_bits(signal) {
             process.inner_exclusive_access().signals |= flag;
@@ -162,12 +156,13 @@ pub fn sys_kill(pid: usize, signal: u32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
-        current_task().unwrap().process.upgrade().unwrap().getpid()
-    );
-    -1
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    let now_us = get_time_us();
+    *translated_refmut(current_user_token(), ts) = TimeVal {
+        sec: now_us / 1_000_000,
+        usec: now_us % 1_000_000,
+    };
+    0
 }
 
 /// task_info syscall

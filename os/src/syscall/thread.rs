@@ -1,7 +1,7 @@
 use crate::{
     mm::kernel_token,
-    task::{add_task, current_task, TaskControlBlock},
-    trap::{trap_handler, TrapContext},
+    task::{ add_task, current_task, TaskControlBlock },
+    trap::{ trap_handler, TrapContext },
 };
 use alloc::sync::Arc;
 /// thread create syscall
@@ -9,26 +9,18 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
     trace!(
         "kernel:pid[{}] tid[{}] sys_thread_create",
         current_task().unwrap().process.upgrade().unwrap().getpid(),
-        current_task()
-            .unwrap()
-            .inner_exclusive_access()
-            .res
-            .as_ref()
-            .unwrap()
-            .tid
+        current_task().unwrap().inner_exclusive_access().res.as_ref().unwrap().tid
     );
     let task = current_task().unwrap();
     let process = task.process.upgrade().unwrap();
     // create a new thread
-    let new_task = Arc::new(TaskControlBlock::new(
-        Arc::clone(&process),
-        task.inner_exclusive_access()
-            .res
-            .as_ref()
-            .unwrap()
-            .ustack_base,
-        true,
-    ));
+    let new_task = Arc::new(
+        TaskControlBlock::new(
+            Arc::clone(&process),
+            task.inner_exclusive_access().res.as_ref().unwrap().ustack_base,
+            true
+        )
+    );
     // add new task to scheduler
     add_task(Arc::clone(&new_task));
     let new_task_inner = new_task.inner_exclusive_access();
@@ -47,9 +39,22 @@ pub fn sys_thread_create(entry: usize, arg: usize) -> isize {
         new_task_res.ustack_top(),
         kernel_token(),
         new_task.kstack.get_top(),
-        trap_handler as usize,
+        trap_handler as usize
     );
     (*new_task_trap_cx).x[10] = arg;
+    let mutex_len = process_inner.dd_available_mutex.len();
+
+    use alloc::{ vec, vec::Vec };
+    process_inner.dd_allocation_mutex.push(vec![0; mutex_len]);
+    process_inner.dd_need_mutex.push(vec![0; mutex_len]);
+    let sem_len = process_inner.dd_available_sem.len();
+    process_inner.dd_allocation_sem.push(vec![0; sem_len]);
+    let sem_max_count_vec: Vec<usize> = process_inner.semaphore_list
+        .iter()
+        .filter_map(|sem| sem.as_ref().map(|s| s.max_count - 1))
+        .collect();
+    process_inner.dd_need_sem.push(sem_max_count_vec);
+
     new_task_tid as isize
 }
 /// get current thread id syscall
@@ -57,21 +62,9 @@ pub fn sys_gettid() -> isize {
     trace!(
         "kernel:pid[{}] tid[{}] sys_gettid",
         current_task().unwrap().process.upgrade().unwrap().getpid(),
-        current_task()
-            .unwrap()
-            .inner_exclusive_access()
-            .res
-            .as_ref()
-            .unwrap()
-            .tid
+        current_task().unwrap().inner_exclusive_access().res.as_ref().unwrap().tid
     );
-    current_task()
-        .unwrap()
-        .inner_exclusive_access()
-        .res
-        .as_ref()
-        .unwrap()
-        .tid as isize
+    current_task().unwrap().inner_exclusive_access().res.as_ref().unwrap().tid as isize
 }
 
 /// wait for a thread to exit syscall
@@ -83,13 +76,7 @@ pub fn sys_waittid(tid: usize) -> i32 {
     trace!(
         "kernel:pid[{}] tid[{}] sys_waittid",
         current_task().unwrap().process.upgrade().unwrap().getpid(),
-        current_task()
-            .unwrap()
-            .inner_exclusive_access()
-            .res
-            .as_ref()
-            .unwrap()
-            .tid
+        current_task().unwrap().inner_exclusive_access().res.as_ref().unwrap().tid
     );
     let task = current_task().unwrap();
     let process = task.process.upgrade().unwrap();

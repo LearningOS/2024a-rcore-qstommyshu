@@ -3,14 +3,14 @@
 use super::id::RecycleAllocator;
 use super::manager::insert_into_pid2process;
 use super::TaskControlBlock;
-use super::{add_task, SignalFlags};
-use super::{pid_alloc, PidHandle};
-use crate::fs::{File, Stdin, Stdout};
-use crate::mm::{translated_refmut, MemorySet, KERNEL_SPACE};
-use crate::sync::{Condvar, Mutex, Semaphore, UPSafeCell};
-use crate::trap::{trap_handler, TrapContext};
+use super::{ add_task, SignalFlags };
+use super::{ pid_alloc, PidHandle };
+use crate::fs::{ File, Stdin, Stdout };
+use crate::mm::{ translated_refmut, MemorySet, KERNEL_SPACE };
+use crate::sync::{ Condvar, Mutex, Semaphore, UPSafeCell };
+use crate::trap::{ trap_handler, TrapContext };
 use alloc::string::String;
-use alloc::sync::{Arc, Weak};
+use alloc::sync::{ Arc, Weak };
 use alloc::vec;
 use alloc::vec::Vec;
 use core::cell::RefMut;
@@ -49,6 +49,21 @@ pub struct ProcessControlBlockInner {
     pub semaphore_list: Vec<Option<Arc<Semaphore>>>,
     /// condvar list
     pub condvar_list: Vec<Option<Arc<Condvar>>>,
+
+    /// deadlock detection enabled
+    pub deadlock_detection_enabled: bool,
+    /// deadlock detection available mutex
+    pub dd_available_mutex: Vec<usize>,
+    /// deadlock detection allocation mutex
+    pub dd_allocation_mutex: Vec<Vec<usize>>,
+    /// deadlock detection need mutex
+    pub dd_need_mutex: Vec<Vec<usize>>,
+    /// deadlock detection available sem
+    pub dd_available_sem: Vec<usize>,
+    /// deadlock detection allocation sem
+    pub dd_allocation_sem: Vec<Vec<usize>>,
+    /// deadlock detection need sem
+    pub dd_need_sem: Vec<Vec<usize>>,
 }
 
 impl ProcessControlBlockInner {
@@ -111,7 +126,7 @@ impl ProcessControlBlock {
                         // 1 -> stdout
                         Some(Arc::new(Stdout)),
                         // 2 -> stderr
-                        Some(Arc::new(Stdout)),
+                        Some(Arc::new(Stdout))
                     ],
                     signals: SignalFlags::empty(),
                     tasks: Vec::new(),
@@ -119,15 +134,19 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+
+                    deadlock_detection_enabled: false,
+                    dd_available_mutex: Vec::new(),
+                    dd_allocation_mutex: vec![Vec::new()],
+                    dd_need_mutex: vec![Vec::new()],
+                    dd_available_sem: Vec::new(),
+                    dd_allocation_sem: vec![Vec::new()],
+                    dd_need_sem: vec![Vec::new()],
                 })
             },
         });
         // create a main thread, we should allocate ustack and trap_cx here
-        let task = Arc::new(TaskControlBlock::new(
-            Arc::clone(&process),
-            ustack_base,
-            true,
-        ));
+        let task = Arc::new(TaskControlBlock::new(Arc::clone(&process), ustack_base, true));
         // prepare trap_cx of main thread
         let task_inner = task.inner_exclusive_access();
         let trap_cx = task_inner.get_trap_cx();
@@ -139,7 +158,7 @@ impl ProcessControlBlock {
             ustack_top,
             KERNEL_SPACE.exclusive_access().token(),
             kstack_top,
-            trap_handler as usize,
+            trap_handler as usize
         );
         // add main thread to the process
         let mut process_inner = process.inner_exclusive_access();
@@ -179,7 +198,7 @@ impl ProcessControlBlock {
             .map(|arg| {
                 translated_refmut(
                     new_token,
-                    (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize,
+                    (argv_base + arg * core::mem::size_of::<usize>()) as *mut usize
                 )
             })
             .collect();
@@ -203,7 +222,7 @@ impl ProcessControlBlock {
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
             task.kstack.get_top(),
-            trap_handler as usize,
+            trap_handler as usize
         );
         trap_cx.x[10] = args.len();
         trap_cx.x[11] = argv_base;
@@ -245,25 +264,29 @@ impl ProcessControlBlock {
                     mutex_list: Vec::new(),
                     semaphore_list: Vec::new(),
                     condvar_list: Vec::new(),
+
+                    deadlock_detection_enabled: false,
+                    dd_available_mutex: Vec::new(),
+                    dd_allocation_mutex: vec![Vec::new()],
+                    dd_need_mutex: vec![Vec::new()],
+                    dd_available_sem: Vec::new(),
+                    dd_allocation_sem: vec![Vec::new()],
+                    dd_need_sem: vec![Vec::new()],
                 })
             },
         });
         // add child
         parent.children.push(Arc::clone(&child));
         // create main thread of child process
-        let task = Arc::new(TaskControlBlock::new(
-            Arc::clone(&child),
-            parent
-                .get_task(0)
-                .inner_exclusive_access()
-                .res
-                .as_ref()
-                .unwrap()
-                .ustack_base(),
-            // here we do not allocate trap_cx or ustack again
-            // but mention that we allocate a new kstack here
-            false,
-        ));
+        let task = Arc::new(
+            TaskControlBlock::new(
+                Arc::clone(&child),
+                parent.get_task(0).inner_exclusive_access().res.as_ref().unwrap().ustack_base(),
+                // here we do not allocate trap_cx or ustack again
+                // but mention that we allocate a new kstack here
+                false
+            )
+        );
         // attach task to child process
         let mut child_inner = child.inner_exclusive_access();
         child_inner.tasks.push(Some(Arc::clone(&task)));
