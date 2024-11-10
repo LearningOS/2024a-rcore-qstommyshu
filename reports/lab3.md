@@ -1,25 +1,24 @@
-# Lab1
+# Lab3
 
 ### 总结实现的功能：
 
-1. 在`TaskControlBlock`里加入了`start_time`, 用于计算任务运行时间。
-2. 将`TaskControlBlock`里的`TaskStatus`改为了`TaskInfo`, 用于储存任务的所需要的各种信息。
-3. 增加了函数`update_current_syscall_times()`用于每次`syscall`时给每个任务的系统调用计数。
-4. 增加了函数`get_current_task_info()`用于从外部获取`task_info`。
+1. 实现了sys_spawn, 其实就是fork + exec，但是fork修改了一下，没有copy整个地址空间
+2. 实现了stride的调度算法，改变了task manager获取下一个任务的逻辑为取stride最小的任务执行。
 
 ### 问答题:
 
-1. 环境: rustsbi-qemu 0.1.1, qemu 9.0.0
+1. 实际情况不是轮到`p1`执行，`p2` 执行时间片后`p2.stride`会溢出，变成比`p1.strid`小的数字。调度器会继续让`p2`执行，因为`p2.stride`变小了
+2. 步长范围：
+假设 BigStride 是 255，STRIDE_MIN 是 0，STRIDE_MAX 是 255。
+如果进程优先级 >= 2，意味着每个进程的初始步长至少为 2。
+步长增量：
+每个进程在调度时，其步长会增加一个固定的值（通常是 1）。
+由于初始步长至少为 2，所以在任何时刻，步长的最大值和最小值之间的差值不会超过 BigStride / 2。
+步长溢出处理：
+当步长达到 BigStride 时，步长会重置为 STRIDE_MIN。
+由于初始步长至少为 2，即使发生溢出，步长的最大值和最小值之间的差值仍然不会超过 BigStride / 2。
 
-   1. `ch2b_bad_address.rs`:
-   2. `ch2b_bad_instructions.rs`: 使用S态的指令`sret`, 报错: `[kernel] IllegalInstruction in application, kernel killed it`
-   3. `ch2b_bad_register.rs`:  使用S态的指令`sstatus`??
-2. test
-3. test
-4. test
-5. test
-6. test
-7. test
+3. 对比的时候转换成i16就好了。
 
 ### 荣誉准则内容:
 
